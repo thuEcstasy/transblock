@@ -58,6 +58,10 @@ def parse_args():
             "magicoder-evol-instruct",
             "sciq",
             "camel",
+            "nemotron-v2-code",
+            "nemotron-v2-stem",
+            "nemotron-v2-math",
+            "nemotron-v2",
         ],
         help="The demo dataset to quickly run the training for speculative decoding",
     )
@@ -522,6 +526,28 @@ def process_camel_row(row: Dict, dataset_name: str = None) -> Tuple[Dict, int]:
     return processed_row, 0
 
 
+def process_nemotron_row(row: Dict, dataset_name: str = None) -> Tuple[Dict, int]:
+    """Process a row from the nvidia/Nemotron-Post-Training-Dataset-v2 dataset.
+
+    The function expects a row with the following schema:
+    {
+        "messages": [
+            {"role": "system" | "user" | "assistant", "content": str},
+            ...
+        ]
+    }
+    """
+    messages = row["messages"]
+    conversations = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        if role in ("system", "user", "assistant"):
+            conversations.append({"role": role, "content": content})
+    row_id = row.get("uuid") or hashlib.md5(str(messages).encode()).hexdigest()
+    return {"id": row_id, "conversations": conversations}, 0
+
+
 def add_index(row, idx) -> Dict:
     row["id"] = idx
     return row
@@ -648,6 +674,38 @@ def main():
         ]
         ds = concatenate_datasets(camel_datasets)
         proc_fn = process_camel_row
+    elif args.dataset == "nemotron-v2-code":
+        ds = load_dataset(
+            "parquet",
+            data_files="hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2/data/code-*.parquet",
+            split="train",
+        )
+        proc_fn = process_nemotron_row
+    elif args.dataset == "nemotron-v2-stem":
+        ds = load_dataset(
+            "parquet",
+            data_files="hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2/data/stem-*.parquet",
+            split="train",
+        )
+        proc_fn = process_nemotron_row
+    elif args.dataset == "nemotron-v2-math":
+        ds = load_dataset(
+            "parquet",
+            data_files="hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2/data/math-*.parquet",
+            split="train",
+        )
+        proc_fn = process_nemotron_row
+    elif args.dataset == "nemotron-v2":
+        nemotron_datasets = [
+            load_dataset(
+                "parquet",
+                data_files=f"hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2/data/{subset}-*.parquet",
+                split="train",
+            )
+            for subset in ("code", "stem", "math")
+        ]
+        ds = concatenate_datasets(nemotron_datasets)
+        proc_fn = process_nemotron_row
     else:
         raise ValueError(
             f"This script only supports ultrachat, sharegpt, sharegpt4v, allava4v, opc, gsm8k, hendrycks_math, math_qa, codealpaca-20k, opencodeinstruct, magicoder-evol-instruct, sciq, camel, and perfect-blend-gptoss-20B datasets for demo purpose, if you wish to use other datasets, please modify this script."

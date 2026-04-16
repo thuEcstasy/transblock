@@ -1,5 +1,7 @@
 from typing import Callable, Optional
 
+from tqdm import tqdm
+
 import torch
 from torch import nn
 from transformers import DynamicCache
@@ -313,6 +315,9 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
         # Decode stage
         acceptance_lengths = []
         start = input_ids.shape[1]
+        import time
+        t0 = time.perf_counter()
+        pbar = tqdm(total=max_new_tokens, desc="generating", unit="tok")
         while start < max_length:
             block_output_ids = output_ids[:, start : start + block_size].clone()
             block_position_ids = position_ids[:, start : start + block_size]
@@ -354,16 +359,31 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
                 :, acceptance_length
             ]
             start += acceptance_length + 1
+            acceptance_lengths.append(acceptance_length + 1)
+            pbar.update(acceptance_length + 1)
+            elapsed = time.perf_counter() - t0
+            total_accepted = sum(acceptance_lengths)
+            pbar.set_postfix({
+                "acc_len": f"{acceptance_length + 1}/{block_size}",
+                "mean_acc": f"{total_accepted / len(acceptance_lengths):.2f}",
+                "tok/s": f"{total_accepted / elapsed:.1f}",
+            })
             past_key_values_target.crop(start)
             target_hidden = extract_context_feature(
                 output.hidden_states, self.target_layer_ids
             )[:, : acceptance_length + 1, :]
-            acceptance_lengths.append(acceptance_length + 1)
             if stop_token_ids is not None and any(
                 stop_token_id in output_ids[:, num_input_tokens:]
                 for stop_token_id in stop_token_ids
             ):
                 break
+        pbar.close()
+        elapsed = time.perf_counter() - t0
+        total_new = start - num_input_tokens
+        print(f"[spec_generate] {total_new} tokens in {elapsed:.2f}s | "
+              f"{total_new / elapsed:.1f} tok/s | "
+              f"mean acceptance {sum(acceptance_lengths) / len(acceptance_lengths):.2f}/{block_size} | "
+              f"{len(acceptance_lengths)} iters")
         output_ids = output_ids[:, :max_length]
         output_ids = output_ids[:, output_ids[0] != self.mask_token_id]
         if stop_token_ids is not None:

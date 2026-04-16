@@ -268,21 +268,22 @@ def main():
     total_lines = sum(1 for _ in open(args.input_file_path))
 
     skip_lines = 0
+    done_ids = set()
     error_file_path = args.output_file_path.replace(".jsonl", "_error.jsonl")
 
     if args.resume and os.path.exists(args.output_file_path):
-        existing_success = sum(1 for _ in open(args.output_file_path))
-        existing_error = 0
-        if os.path.exists(error_file_path):
-            existing_error = sum(1 for _ in open(error_file_path))
-        skip_lines = existing_success + existing_error
+        for path in [args.output_file_path, error_file_path]:
+            if os.path.exists(path):
+                for line in open(path):
+                    try:
+                        done_ids.add(json.loads(line.strip())["id"])
+                    except Exception:
+                        pass
         print(f"Resume mode enabled:")
-        print(f"  Found {existing_success} successful samples in output file")
-        print(f"  Found {existing_error} error samples in error file")
-        print(f"  Skipping first {skip_lines} input samples")
+        print(f"  Found {len(done_ids)} already processed samples (by id)")
         print("-" * 50)
 
-        if skip_lines >= total_lines:
+        if len(done_ids) >= total_lines:
             print(f"All {total_lines} samples already processed. Nothing to do.")
             return
 
@@ -311,7 +312,7 @@ def main():
     print("-" * 50)
 
     # Determine file open mode based on resume flag
-    file_mode = "a" if (args.resume and skip_lines > 0) else "w"
+    file_mode = "a" if (args.resume and len(done_ids) > 0) else "w"
     print(
         f"Regenerating dataset and saving the output to {args.output_file_path} and error log to {error_file_path}"
     )
@@ -337,14 +338,8 @@ def main():
         waiting_queue = {
             server_address: [] for server_address in valid_server_addresses
         }
-        pbar = tqdm(total=total_lines, desc="Processing", initial=skip_lines)
+        pbar = tqdm(total=total_lines, desc="Processing", initial=len(done_ids))
         start_server_index = 0
-
-        if skip_lines > 0:
-            print(f"Skipping {skip_lines} already processed samples...")
-            for _ in range(skip_lines):
-                next(input_file, None)
-            print(f"Resuming from sample {skip_lines + 1}")
 
         for line in input_file:
             if (
@@ -354,6 +349,9 @@ def main():
                 break
 
             data = json.loads(line.strip())
+
+            if data.get("id") in done_ids:
+                continue
 
             # find server address with the least waiting requests
             server_address = valid_server_addresses[start_server_index]
@@ -439,13 +437,13 @@ def main():
         print("No successful examples to compute context length statistics.")
 
     total_processed = success_samples + error_samples
-    if skip_lines > 0:
+    if len(done_ids) > 0:
         print(f"\nResume processing completed!")
-        print(f"  Previously processed: {skip_lines}")
+        print(f"  Previously processed: {len(done_ids)}")
         print(
             f"  Newly processed: {total_processed} ({success_samples} success, {error_samples} failed)"
         )
-        print(f"  Total: {skip_lines + total_processed}")
+        print(f"  Total: {len(done_ids) + total_processed}")
     else:
         print(
             f"\nProcessing completed! {success_samples} samples regenerated, {error_samples} samples failed."

@@ -51,9 +51,30 @@ class TargetEmbeddingsAndHead(nn.Module):
     ) -> "TargetEmbeddingsAndHead":
 
         # 1. Load Config
-        config = AutoConfig.from_pretrained(
-            model_path, cache_dir=cache_dir, trust_remote_code=trust_remote_code
-        )
+        try:
+            config = AutoConfig.from_pretrained(
+                model_path, cache_dir=cache_dir, trust_remote_code=trust_remote_code
+            )
+        except (ValueError, KeyError):
+            # Fallback for model types not yet registered in the installed transformers
+            # version (e.g. qwen3_5). Load raw JSON and build a compatible config.
+            import json as _json
+            _cfg_path = os.path.join(model_path, "config.json")
+            with open(_cfg_path) as _f:
+                _raw = _json.load(_f)
+            # Use text_config if present (multimodal models)
+            _text = _raw.get("text_config", _raw)
+            from transformers import Qwen2Config
+            config = Qwen2Config(
+                hidden_size=_text["hidden_size"],
+                num_hidden_layers=_text.get("num_hidden_layers", 32),
+                num_attention_heads=_text.get("num_attention_heads", 16),
+                num_key_value_heads=_text.get("num_key_value_heads", 4),
+                intermediate_size=_text.get("intermediate_size", 8960),
+                vocab_size=_text["vocab_size"],
+                tie_word_embeddings=_raw.get("tie_word_embeddings", _text.get("tie_word_embeddings", False)),
+                pad_token_id=_text.get("pad_token_id", None),
+            )
         instance = cls(config)
 
         if embed_key is None:

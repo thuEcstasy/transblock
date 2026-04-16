@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 export WANDB_PROJECT=dflash-reproduce
@@ -19,10 +19,10 @@ torchrun \
     --standalone \
     --nproc_per_node $NUM_GPUS \
     $ROOT_DIR/scripts/train_dflash.py \
-    --target-model-path /mnt/data/szf_temp/huggingface/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
-    --draft-config-path $ROOT_DIR/configs/qwen3p5-4b-dflash.json \
-    --train-data-path $ROOT_DIR/cache/dataset/nemotron-v2_qwen3p5-4b_regen.jsonl \
-    --output-dir $ROOT_DIR/outputs/qwen3-8b-perfectblend \
+    --target-model-path /mnt/data/szf_temp/huggingface/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c \
+    --draft-config-path $ROOT_DIR/configs/qwen3-4b-draft-config.json \
+    --train-data-path $ROOT_DIR/cache/dataset/nemotron-v2_qwen3-4b_regen.jsonl \
+    --output-dir $ROOT_DIR/outputs/qwen3-4b-nemotron \
     --num-epochs 6 \
     --batch-size 1 \
     --learning-rate 6e-4 \
@@ -36,11 +36,10 @@ torchrun \
     --log-interval 50 \
     --save-interval 1000 \
     --report-to wandb \
-    --wandb-project specforge-qwen3-8b-dflash \
+    --wandb-project specforge-qwen3-4b-dflash \
     --target-model-backend sglang \
     --block-size 16 \
-    --num-anchors 512 \
-    --wandb-name qwen3p5-4b-dflash-nemotron \
-    --embedding-key model.language_model.embed_tokens.weight \
+    --wandb-name qwen3-4b-dflash-nemotron \
+    --embedding-key model.embed_tokens.weight \
     --trust-remote-code \
     --sglang-mem-fraction-static 0.3
