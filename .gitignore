@@ -199,3 +199,8 @@ wandb/
 
 # macOS
 .DS_Store
+
+
+cache/
+datasets/
+outputs/

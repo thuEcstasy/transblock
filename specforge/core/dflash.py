@@ -306,12 +306,16 @@ class OnlineDFlashModel(nn.Module):
 
         binary_eval_mask = weight_mask.view(-1)
 
-        # --- Loss decay: exp(-(k-1)/γ) so k=1 (1st prediction) gets weight 1.0 ---
+        # --- Loss decay: exp(-i/γ) where i is the prediction index (0-based) ---
         if self.loss_decay_gamma is not None and self.loss_decay_gamma > 0:
             k = torch.arange(self.block_size, device=device).view(1, 1, -1)
-            decay_weights = torch.exp(
-                -(k - 1).clamp(min=0).float() / self.loss_decay_gamma
-            )
+            if self.sub_block_size is not None:
+                # i = 0,1,2,3 for the 4 predicted positions — keeps decay gentle
+                # regardless of the absolute offset within the block.
+                i = (k - 1) // self.sub_block_size
+            else:
+                i = (k - 1).clamp(min=0)
+            decay_weights = torch.exp(-i.float() / self.loss_decay_gamma)
             weight_mask = weight_mask * decay_weights
 
         # --- Cross entropy ---
