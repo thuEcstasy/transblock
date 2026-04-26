@@ -702,8 +702,10 @@ def main():
                 data_files=f"hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2/data/{subset}-*.parquet",
                 split="train",
             )
-            for subset in ("code", "stem", "math")
+            for subset in ("code", "chat", "math")
         ]
+        # only use the first 350k for chat
+        nemotron_datasets[1] = nemotron_datasets[1].select([i for i in list(range(350000))])
         ds = concatenate_datasets(nemotron_datasets)
         proc_fn = process_nemotron_row
     else:
@@ -724,7 +726,7 @@ def main():
 
     if args.output_path is None:
         root_path = Path(__file__).parent.parent
-        output_path = root_path.joinpath("cache", "dataset")
+        output_path = root_path.joinpath("cache", "dataset_new")
         output_path.mkdir(parents=True, exist_ok=True)
     else:
         output_path = Path(args.output_path)

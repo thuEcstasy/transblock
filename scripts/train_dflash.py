@@ -81,6 +81,14 @@ def parse_args():
         "Suggested: 7 for block_size=16, 5 for 10, 4 for 8. None disables.",
     )
     model_group.add_argument(
+        "--sub-block-size",
+        type=int,
+        default=None,
+        help="If set, train anchor-only drafter: predict only at offsets "
+        "1, 1+S, 1+2S, ... within each block (S=sub_block_size). "
+        "E.g. --block-size 16 --sub-block-size 4 predicts positions 1,5,9,13.",
+    )
+    model_group.add_argument(
         "--embedding-key",
         type=str,
         default=None,
@@ -436,6 +444,7 @@ def main():
         attention_backend=args.attention_backend,
         num_anchors=args.num_anchors,
         loss_decay_gamma=args.loss_decay_gamma,
+        sub_block_size=args.sub_block_size,
     )
 
     dflash_model = FSDP(

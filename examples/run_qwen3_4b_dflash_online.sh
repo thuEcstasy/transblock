@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 export WANDB_PROJECT=dflash-reproduce
@@ -11,7 +11,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ROOT_DIR=$(dirname $SCRIPT_DIR)
 export TORCHINDUCTOR_CACHE_DIR=$ROOT_DIR/cache/compiled_kernels
 export SPECFORGE_DATA_NUM_PROC=32
-NUM_GPUS=2
+NUM_GPUS=4
 
 ATTENTION_BACKEND=${2:-flex_attention}
 
@@ -39,7 +39,9 @@ torchrun \
     --wandb-project specforge-qwen3-4b-dflash \
     --target-model-backend sglang \
     --block-size 16 \
+    --sub-block-size 4 \
     --wandb-name qwen3-4b-dflash-nemotron \
     --embedding-key model.embed_tokens.weight \
     --trust-remote-code \
-    --sglang-mem-fraction-static 0.3
+    --sglang-mem-fraction-static 0.3 \
+    --cache-dir /mnt/data/szf_temp/cache \

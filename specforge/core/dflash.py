@@ -106,6 +106,7 @@ class OnlineDFlashModel(nn.Module):
         attention_backend: str = "flex_attention",
         num_anchors: int = 512,
         loss_decay_gamma: Optional[float] = None,
+        sub_block_size: Optional[int] = None,
     ):
         super().__init__()
         self.draft_model = draft_model
@@ -116,6 +117,9 @@ class OnlineDFlashModel(nn.Module):
         self.attention_backend = attention_backend
         self.num_anchors = num_anchors
         self.loss_decay_gamma = loss_decay_gamma
+        # If set, only predict at offsets 0, sub_block_size, 2*sub_block_size, ...
+        # within each block (anchor-only drafter mode).
+        self.sub_block_size = sub_block_size
 
         self._cached_block_mask: Optional[BlockMask] = None
         self._cached_seq_len: Optional[int] = None
@@ -196,18 +200,21 @@ class OnlineDFlashModel(nn.Module):
             (bsz, n * bs), self.mask_token_id, dtype=torch.long, device=device
         )
 
-        block_starts = torch.arange(n, device=device) * bs
-        block_starts = block_starts.unsqueeze(0).expand(bsz, -1)
+        if self.sub_block_size is None:
+            # Full-block mode: anchor token is given as real input at position 0.
+            block_starts = torch.arange(n, device=device) * bs
+            block_starts = block_starts.unsqueeze(0).expand(bsz, -1)
+            valid_anchor_positions = anchor_positions.clamp(0, seq_len - 1)
+            anchor_tokens = torch.gather(input_ids, 1, valid_anchor_positions)
+            flat_batch_idx = torch.arange(bsz, device=device).unsqueeze(1).expand(bsz, n)
+            noise_ids[flat_batch_idx, block_starts] = torch.where(
+                block_keep_mask,
+                anchor_tokens,
+                torch.tensor(self.mask_token_id, dtype=torch.long, device=device),
+            )
 
-        valid_anchor_positions = anchor_positions.clamp(0, seq_len - 1)
-        anchor_tokens = torch.gather(input_ids, 1, valid_anchor_positions)
-
-        flat_batch_idx = torch.arange(bsz, device=device).unsqueeze(1).expand(bsz, n)
-        noise_ids[flat_batch_idx, block_starts] = torch.where(
-            block_keep_mask,
-            anchor_tokens,
-            torch.tensor(self.mask_token_id, dtype=torch.long, device=device),
-        )
+        # In sub_block_size mode all positions are MASK: we predict the anchor
+        # token itself along with the other sub-block starts.
 
         return self.embed_tokens(noise_ids)
 
@@ -280,7 +287,15 @@ class OnlineDFlashModel(nn.Module):
         weight_mask = weight_mask * valid_label_mask.float()
 
         pos_in_block = torch.arange(self.block_size, device=device).view(1, 1, -1)
-        weight_mask = weight_mask * (pos_in_block > 0).float()
+        if self.sub_block_size is not None:
+            # Predict only at sub-block start offsets: 1, 1+S, 1+2S, 1+3S, ...
+            # Position 0 is still excluded (MASK input, no supervision), matching
+            # the full-block convention where position 0 is not predicted.
+            pred_positions = (pos_in_block > 0) & ((pos_in_block - 1) % self.sub_block_size == 0)
+        else:
+            # Full-block mode: exclude position 0 (anchor token is given as input).
+            pred_positions = pos_in_block > 0
+        weight_mask = weight_mask * pred_positions.float()
 
         original_loss_mask_gathered = torch.gather(
             loss_mask.unsqueeze(1).expand(-1, anchor_positions.size(1), -1),

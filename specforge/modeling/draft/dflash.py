@@ -275,6 +275,8 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
         max_new_tokens: int,
         stop_token_ids: list[int],
         temperature: float,
+        return_debug: bool = False,
+        debug_topk: int = 5,
     ):
         self.eval()
         num_input_tokens = input_ids.shape[1]
@@ -314,6 +316,7 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
 
         # Decode stage
         acceptance_lengths = []
+        debug_iters = [] if return_debug else None
         start = input_ids.shape[1]
         import time
         t0 = time.perf_counter()
@@ -352,6 +355,25 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
                 .sum(dim=1)[0]
                 .item()
             )
+            if return_debug:
+                # draft_logits[:, i, :] predicts token at block position i+1
+                # output.logits[:, i, :]  is target's prediction for the same position i+1
+                d_logits = draft_logits[0]                     # [block-1, V]
+                t_logits = output.logits[0, :-1]               # [block-1, V]
+                d_top = torch.topk(d_logits, k=debug_topk, dim=-1)
+                t_top = torch.topk(t_logits, k=debug_topk, dim=-1)
+                debug_iters.append({
+                    "start": start,
+                    "block_size": block_size,
+                    "acceptance_length": acceptance_length,
+                    "context_token_id": int(block_output_ids[0, 0].item()),
+                    "draft_top_ids": d_top.indices.cpu(),       # [block-1, k]
+                    "draft_top_logits": d_top.values.float().cpu(),
+                    "target_top_ids": t_top.indices.cpu(),
+                    "target_top_logits": t_top.values.float().cpu(),
+                    "target_posterior": posterior[0, :-1].cpu(),
+                    "draft_proposed": block_output_ids[0, 1:].cpu(),
+                })
             output_ids[:, start : start + acceptance_length + 1] = block_output_ids[
                 :, : acceptance_length + 1
             ]
@@ -396,4 +418,6 @@ class DFlashDraftModel(Qwen3PreTrainedModel):
                     :, : num_input_tokens + stop_token_indices[0] + 1
                 ]
 
+        if return_debug:
+            return output_ids, debug_iters
         return output_ids
